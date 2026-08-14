@@ -1,0 +1,35 @@
+name: Publish to npm
+
+# OIDC tag-push release flow (mirror of @ghilteras/opencode-agent-memory):
+# push a tag v* -> GitHub Actions runs build+tests -> npm publish --provenance.
+# Requires the npm OIDC Trusted Publisher config in the npm package settings
+# (npmjs.com -> package -> Settings -> Trusted Publisher -> GitHub Actions,
+# repo Ghilteras/opencode-model-fallback, workflow filename publish.yml).
+# NO npm token in secrets — provenance is minted via OIDC (id-token: write).
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - run: bun test
+      - run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ''

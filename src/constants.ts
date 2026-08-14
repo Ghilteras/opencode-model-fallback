@@ -1,0 +1,39 @@
+import type { FallbackPluginConfig } from "./types"
+
+export const PLUGIN_NAME = "opencode-model-fallback"
+
+export const DEFAULT_CONFIG: Required<FallbackPluginConfig> = {
+	enabled: true,
+	retry_on_errors: [401, 402, 429, 500, 502, 503, 504],
+	retryable_error_patterns: [],
+	max_fallback_attempts: 10,
+	cooldown_seconds: 60,
+	timeout_seconds: 30,
+	notify_on_fallback: true,
+	fallback_models: [],
+	small_model_chain: [],
+	sticky_fallback: false,
+}
+
+/** Provider-level cooldowns shared by the small_model chain hook and the
+ *  fallback chain (a provider that failed a fallback swap is also skipped
+ *  by the small_model chain until its cooldown expires). */
+export const smallModelProviderCooldowns = new Map<string, number>()
+
+export const RETRYABLE_ERROR_PATTERNS = [
+	/rate.?limit/i,
+	/too.?many.?requests/i,
+	/quota.?exceeded/i,
+	/quota.?protection/i,
+	/key.?limit.?exceeded/i,
+	/usage\s+limit\s+has\s+been\s+reached/i,
+	/service.?unavailable/i,
+	/overloaded/i,
+	/temporarily.?unavailable/i,
+	/try.?again/i,
+	/credit.*balance.*too.*low/i,
+	/insufficient.?(?:credits?|funds?|balance)/i,
+	/(?:^|\s)429(?:\s|$)/,
+	/(?:^|\s)503(?:\s|$)/,
+	/(?:^|\s)529(?:\s|$)/,
+]
