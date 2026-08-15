@@ -418,8 +418,16 @@ describe("error-classifier", () => {
 	})
 
 	describe("#given detectErrorInTextParts", () => {
-		describe("#when text parts contain missing API key error", () => {
-			test("#then detects error type", () => {
+		describe("#when text parts mention a missing API key", () => {
+			test("#then prose is NOT classified as an error (2026-08-14 fork)", () => {
+				// 2026-08-14 fork: free-form assistant TEXT is never classified
+				// as a provider error — prose is not an error (journal
+				// 20260814-181906-182). The old regex scan of assistant prose
+				// for error keywords caused false fallbacks, a self-amplifying
+				// loop when the conversation itself discusses provider errors.
+				// Real provider errors arrive as `error`-type parts
+				// (extractErrorContentFromParts) or as info.error
+				// (classifyErrorType on the error object).
 				const parts = [
 					{ type: "text", text: "api key is missing from environment variable" },
 				]
@@ -428,8 +436,7 @@ describe("error-classifier", () => {
 					{ type: "text", text: "" },
 				].map(p => ({ ...p, text: p.text || undefined })))
 
-				expect(result.hasError).toBe(true)
-				expect(result.errorType).toBe("missing_api_key")
+				expect(result).toEqual({ hasError: false })
 			})
 		})
 

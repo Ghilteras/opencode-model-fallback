@@ -103,7 +103,11 @@ describe("OpenCodeFallbackPlugin", () => {
 
 				plugin.config(opencodeConfig)
 
-				// Trigger a session.error to verify agent configs are accessible
+				// Trigger a session.error to verify agent configs are accessible.
+				// 2026-08-14 fork: a transient 429 now retries NATIVELY on the
+				// current provider (no fallback swap) — only a NON-transient
+				// error (402 insufficient_balance) triggers the fallback, so
+				// use 402 here to exercise the captured agent config end-to-end.
 				;(ctx.client.session.messages as any).mockImplementation(() =>
 					Promise.resolve({
 						data: [
@@ -117,7 +121,7 @@ describe("OpenCodeFallbackPlugin", () => {
 						type: "session.error",
 						properties: {
 							sessionID: "ses-opus-singular",
-							error: { statusCode: 429, message: "Rate limited" },
+							error: { statusCode: 402, message: "Insufficient Balance" },
 							model: "anthropic/claude-opus-4-6",
 						},
 					},
@@ -173,12 +177,16 @@ describe("OpenCodeFallbackPlugin", () => {
 					})
 				)
 
+				// 2026-08-14 fork: transient 429 retries natively (no fallback).
+				// Non-transient 402 (insufficient_balance) is the swap trigger —
+				// and it proves the model-already-stopped path: abort skipped,
+				// replay dispatched directly.
 				await plugin.event({
 					event: {
 						type: "session.error",
 						properties: {
 						sessionID: "ses-opus-001",
-						error: { statusCode: 429, message: "Rate limited" },
+						error: { statusCode: 402, message: "Insufficient Balance" },
 						model: "anthropic/claude-opus-4-6",
 						},
 					},

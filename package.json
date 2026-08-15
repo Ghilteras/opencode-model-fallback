@@ -1,7 +1,7 @@
 {
   "name": "@ghilteras/opencode-model-fallback",
-  "version": "0.4.0",
-  "description": "Model fallback plugin for opencode 1.18+ — maintained successor to @razroo/opencode-model-fallback (dormant since 2026-04-16). Fallback only on non-transient errors; per-session stickiness; 402 non-retryable; prose-never-error.",
+  "version": "0.4.2",
+  "description": "Model fallback plugin for opencode 1.18+ \u2014 maintained successor to @razroo/opencode-model-fallback (dormant since 2026-04-16). Fallback only on non-transient errors; per-session stickiness; 402 non-retryable; prose-never-error.",
   "private": false,
   "type": "module",
   "main": "dist/index.js",

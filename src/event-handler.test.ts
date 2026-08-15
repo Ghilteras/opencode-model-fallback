@@ -578,12 +578,15 @@ describe("createEventHandler", () => {
 				},
 			})
 
-			// MessageAbortedError is NOT retryable and not in fallback chain,
-			// so without the self-abort guard it should be skipped by the
-			// retryable check — NOT dispatched.
-			// The point is the self-abort guard didn't fire (timestamp too old).
-			// The error will fall through to isRetryableError which returns false.
-			expect(autoRetryWithFallback).not.toHaveBeenCalled()
+			// The self-abort guard only suppresses MessageAbortedError within
+			// the 2s window (SELF_ABORT_WINDOW_MS). With a timestamp 3s old the
+			// guard does NOT fire — the error falls through the stale-model /
+			// awaiting guards and reaches isRetryableError, which returns false
+			// for MessageAbortedError → decideFallbackAction(false, false) →
+			// swap-and-pin → the fallback IS dispatched. This is the fork
+			// behavior (2026-08-14): an old abort is treated as a real error,
+			// not self-inflicted noise.
+			expect(autoRetryWithFallback).toHaveBeenCalled()
 		})
 
 		test("#then it is suppressed even without sessionAwaitingFallbackResult set", async () => {

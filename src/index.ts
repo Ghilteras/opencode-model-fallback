@@ -22,7 +22,7 @@ import {
 import { readFileSync, existsSync } from "fs"
 import { join } from "path"
 import { parse as parseJsonc } from "jsonc-parser"
-import { logInfo } from "./logger"
+import { logInfo, logError } from "./logger"
 
 /** Validate that each fallback model string looks like `provider/model`.
  *  At dispatch time the rotation silently skips malformed entries, which
@@ -173,124 +173,147 @@ export default async function OpenCodeFallbackPlugin(
 		name: PLUGIN_NAME,
 
 		config: (opencodeConfig: Record<string, unknown>) => {
-			// Try 'agents' (plural) first, then 'agent' (singular)
-			const agentsValue = opencodeConfig.agents
-			const agentValue = opencodeConfig.agent
+			// ARMOR: a hook error must never propagate and crash the host.
+			try {
+				if (!opencodeConfig || typeof opencodeConfig !== "object") return
 
-			if (agentsValue && typeof agentsValue === "object" && !Array.isArray(agentsValue)) {
-				agentConfigs = agentsValue as Record<string, unknown>
-			} else if (agentValue && typeof agentValue === "object" && !Array.isArray(agentValue)) {
-				agentConfigs = agentValue as Record<string, unknown>
-			} else {
-				agentConfigs = undefined
-			}
+				// 1.18.18 probe: `agent` (singular, object with agent names)
+				// is the real key; `agents` plural is undefined. Prefer the
+				// singular, fall back to plural only if present (safety).
+				const agentValue = opencodeConfig.agent
+				const agentsValue = opencodeConfig.agents
+				const candidates = [agentValue, agentsValue]
+				const found = candidates.find(
+					(v) => v && typeof v === "object" && !Array.isArray(v)
+				)
+				agentConfigs = found as Record<string, unknown> | undefined
 
-			// Walk every agent's fallback_models once at init and warn about
-			// malformed entries.  Cheap (N agents × K fallback models) and
-			// surfaces typos in the first log line instead of silently
-			// skipping them at dispatch time under load.
-			if (agentConfigs) {
-				for (const [agentName, rawAgentCfg] of Object.entries(agentConfigs)) {
-					if (!rawAgentCfg || typeof rawAgentCfg !== "object") continue
-					const agentCfg = rawAgentCfg as Record<string, unknown>
-					const fm = agentCfg.fallback_models
-					if (fm === undefined) continue
-					const models = normalizeFallbackModelsField(fm as string | string[])
-					validateFallbackModels(models, { scope: "agent", agent: agentName })
+				// Walk every agent's fallback_models once at init and warn about
+				// malformed entries.  Cheap (N agents × K fallback models) and
+				// surfaces typos in the first log line instead of silently
+				// skipping them at dispatch time under load.
+				if (agentConfigs) {
+					for (const [agentName, rawAgentCfg] of Object.entries(agentConfigs)) {
+						if (!rawAgentCfg || typeof rawAgentCfg !== "object") continue
+						const agentCfg = rawAgentCfg as Record<string, unknown>
+						const fm = agentCfg.fallback_models
+						if (fm === undefined) continue
+						const models = normalizeFallbackModelsField(fm as string | string[])
+						validateFallbackModels(models, { scope: "agent", agent: agentName })
+					}
 				}
-			}
 
-			logInfo(`Plugin initialized with ${agentConfigs ? Object.keys(agentConfigs).length : 0} agents`)
+				logInfo(`Plugin initialized with ${agentConfigs ? Object.keys(agentConfigs).length : 0} agents`)
+			} catch (err) {
+				logError("config hook error", { error: String(err) })
+			}
 		},
 
-		event: async ({
-			event,
-		}: {
-			event: { type: string; properties?: unknown }
-		}) => {
-			if (event.type === "message.updated") {
-				if (!deps.config.enabled) return
-				const props = event.properties as
-					| Record<string, unknown>
-					| undefined
-				await messageUpdateHandler(props)
-				return
-			}
-			
-			if (
-				event.type === "message.part.delta" ||
-				event.type === "session.diff" ||
-				event.type === "message.part.updated"
-			) {
-				const props = event.properties as Record<string, unknown> | undefined
-				const info = props?.info as Record<string, unknown> | undefined
-				const sessionID =
-					(props?.sessionID as string | undefined) ??
-					(info?.sessionID as string | undefined) ??
-					(info?.id as string | undefined)
-				// Extract model from activity event so handleActivity can
-				// distinguish stale activity from the failed model vs real
-				// activity from the fallback model.
-				const activityModel =
-					(info?.model as string | undefined) ??
-					(typeof info?.providerID === "string" && typeof info?.modelID === "string"
-						? `${info.providerID}/${info.modelID}`
-						: undefined) ??
-					(props?.model as string | undefined)
-				if (sessionID) {
-					await handleActivity(sessionID, activityModel)
-				}
-			}
-			
-			await baseEventHandler({ event })
+		event: async (
+			arg0: { event?: { type: string; properties?: unknown } } | unknown
+		) => {
+			// ARMOR: a hook error must never propagate and crash the host.
+			try {
+				// 1.18.18 probe: the event hook receives ONE arg that is a
+				// WRAPPER { event: { id, type, properties } }. Never assume the
+				// top-level arg IS the event; read arg0.event with a guard.
+				const wrapper =
+					arg0 && typeof arg0 === "object"
+						? (arg0 as { event?: { type: string; properties?: unknown } })
+						: undefined
+				const ev = wrapper?.event ?? (arg0 as { type?: string; properties?: unknown })
+				if (!ev || typeof ev !== "object" || typeof ev.type !== "string") return
 
+				if (ev.type === "message.updated") {
+					if (!deps.config.enabled) return
+					const props = ev.properties as
+						| Record<string, unknown>
+						| undefined
+					await messageUpdateHandler(props)
+					return
+				}
+			
+				if (
+					ev.type === "message.part.delta" ||
+					ev.type === "session.diff" ||
+					ev.type === "message.part.updated"
+				) {
+					const props = ev.properties as Record<string, unknown> | undefined
+					const info = props?.info as Record<string, unknown> | undefined
+					const sessionID =
+						(props?.sessionID as string | undefined) ??
+						(info?.sessionID as string | undefined) ??
+						(info?.id as string | undefined)
+					// Extract model from activity event so handleActivity can
+					// distinguish stale activity from the failed model vs real
+					// activity from the fallback model.
+					const activityModel =
+						(info?.model as string | undefined) ??
+						(typeof info?.providerID === "string" && typeof info?.modelID === "string"
+							? `${info.providerID}/${info.modelID}`
+							: undefined) ??
+						(props?.model as string | undefined)
+					if (sessionID) {
+						await handleActivity(sessionID, activityModel)
+					}
+				}
+				
+				await baseEventHandler({ event: ev })
+			} catch (err) {
+				logError("event hook error", { error: String(err) })
+			}
 		},
 
 		"tool.execute.after": async (
 			input: { tool: string; sessionID: string; callID: string; args: any },
 			output: { title: string; output: string; metadata: any }
 		) => {
-			// Only intercept task tool calls with empty results
-			if (input.tool !== "task" || !isEmptyTaskResult(output.output)) {
-				return
-			}
+			// ARMOR: a hook error must never propagate and crash the host.
+			try {
+				// Only intercept task tool calls with empty results
+				if (input.tool !== "task" || !isEmptyTaskResult(output.output)) {
+					return
+				}
 
-			const childSessionID = extractChildSessionID(output.output)
-			if (!childSessionID) {
-				logInfo("Empty task result but no child session ID found", {
-					sessionID: input.sessionID,
-					outputPreview: output.output?.substring(0, 200),
-				})
-				return
-			}
+				const childSessionID = extractChildSessionID(output.output)
+				if (!childSessionID) {
+					logInfo("Empty task result but no child session ID found", {
+						sessionID: input.sessionID,
+						outputPreview: output.output?.substring(0, 200),
+					})
+					return
+				}
 
-			logInfo("Detected empty task result, waiting for child fallback", {
-				parentSession: input.sessionID,
-				childSession: childSessionID,
-			})
-
-			// Wait for child session fallback to complete (bounded)
-			const maxWaitMs = Math.min(
-				(deps.config.timeout_seconds || 120) * 1000,
-				120_000,
-			)
-			const replacementText = await waitForChildFallbackResult(deps, childSessionID, {
-				maxWaitMs,
-				pollIntervalMs: 500,
-			})
-
-			if (replacementText) {
-				output.output = replacementText
-				logInfo("Replaced empty task result with fallback response", {
-					parentSession: input.sessionID,
-					childSession: childSessionID,
-					responseLength: replacementText.length,
-				})
-			} else {
-				logInfo("No fallback response available, preserving original output", {
+				logInfo("Detected empty task result, waiting for child fallback", {
 					parentSession: input.sessionID,
 					childSession: childSessionID,
 				})
+
+				// Wait for child session fallback to complete (bounded)
+				const maxWaitMs = Math.min(
+					(deps.config.timeout_seconds || 120) * 1000,
+					120_000,
+				)
+				const replacementText = await waitForChildFallbackResult(deps, childSessionID, {
+					maxWaitMs,
+					pollIntervalMs: 500,
+				})
+
+				if (replacementText) {
+					output.output = replacementText
+					logInfo("Replaced empty task result with fallback response", {
+						parentSession: input.sessionID,
+						childSession: childSessionID,
+						responseLength: replacementText.length,
+					})
+				} else {
+					logInfo("No fallback response available, preserving original output", {
+						parentSession: input.sessionID,
+						childSession: childSessionID,
+					})
+				}
+			} catch (err) {
+				logError("tool.execute.after hook error", { error: String(err) })
 			}
 		},
 
@@ -298,46 +321,56 @@ export default async function OpenCodeFallbackPlugin(
 			input: ChatMessageInput,
 			output: ChatMessageOutput
 		) => {
-			await chatMessageHandler(input, output)
+			// ARMOR: a hook error must never propagate and crash the host.
+			try {
+				await chatMessageHandler(input, output)
+			} catch (err) {
+				logError("chat.message hook error", { error: String(err) })
+			}
 		},
 
 		"experimental.provider.small_model": async (
 			input: { provider?: unknown },
 			output: { model?: unknown }
 		) => {
-			const cfg = deps.config
-			if (!cfg.enabled) return
-			const chain = cfg.small_model_chain ?? []
-			if (!chain.length) return
-			const now = Date.now()
-			const cooldownMs = (cfg.cooldown_seconds ?? 60) * 1000
-			let providers: Array<{ id: string; models?: Record<string, unknown> }> = []
+			// ARMOR: a hook error must never propagate and crash the host.
 			try {
-				const res = await ctx.client.config.providers()
-				providers = res?.data?.providers ?? res?.providers ?? []
+				const cfg = deps.config
+				if (!cfg.enabled) return
+				const chain = cfg.small_model_chain ?? []
+				if (!chain.length) return
+				const now = Date.now()
+				const cooldownMs = (cfg.cooldown_seconds ?? 60) * 1000
+				let providers: Array<{ id: string; models?: Record<string, unknown> }> = []
+				try {
+					const res = await ctx.client.config.providers()
+					providers = res?.data?.providers ?? res?.providers ?? []
+				} catch (err) {
+					logError("small_model hook: failed to list providers", { error: String(err) })
+				}
+				for (const candidate of chain) {
+					const idx = candidate.indexOf("/")
+					if (idx <= 0) continue
+					const providerID = candidate.slice(0, idx)
+					const modelID = candidate.slice(idx + 1)
+					const failedAt = smallModelProviderCooldowns.get(providerID)
+					if (failedAt && now - failedAt < cooldownMs) {
+						logInfo(`small_model chain skip ${candidate} (provider in cooldown)`)
+						continue
+					}
+					const provider = providers.find((p) => p && p.id === providerID)
+					const model = provider && provider.models ? provider.models[modelID] : undefined
+					if (model) {
+						output.model = model
+						logInfo(`small_model chain selected ${candidate}`)
+						return
+					}
+					logInfo(`small_model chain candidate not found: ${candidate}`)
+				}
+				logInfo("small_model chain exhausted, leaving to opencode heuristic", {})
 			} catch (err) {
-				logError("small_model hook: failed to list providers", { error: String(err) })
+				logError("small_model hook error", { error: String(err) })
 			}
-			for (const candidate of chain) {
-				const idx = candidate.indexOf("/")
-				if (idx <= 0) continue
-				const providerID = candidate.slice(0, idx)
-				const modelID = candidate.slice(idx + 1)
-				const failedAt = smallModelProviderCooldowns.get(providerID)
-				if (failedAt && now - failedAt < cooldownMs) {
-					logInfo(`small_model chain skip ${candidate} (provider in cooldown)`)
-					continue
-				}
-				const provider = providers.find((p) => p && p.id === providerID)
-				const model = provider && provider.models ? provider.models[modelID] : undefined
-				if (model) {
-					output.model = model
-					logInfo(`small_model chain selected ${candidate}`)
-					return
-				}
-				logInfo(`small_model chain candidate not found: ${candidate}`)
-			}
-			logInfo("small_model chain exhausted, leaving to opencode heuristic", {})
 		},
 	}
 }

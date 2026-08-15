@@ -2,12 +2,12 @@ import type { PluginContext, FallbackPluginConfig, ChatMessageInput, ChatMessage
 export default function OpenCodeFallbackPlugin(ctx: PluginContext, configOverrides?: Partial<FallbackPluginConfig>): Promise<{
     name: string;
     config: (opencodeConfig: Record<string, unknown>) => void;
-    event: ({ event, }: {
-        event: {
+    event: (arg0: {
+        event?: {
             type: string;
             properties?: unknown;
         };
-    }) => Promise<void>;
+    } | unknown) => Promise<void>;
     "tool.execute.after": (input: {
         tool: string;
         sessionID: string;

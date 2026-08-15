@@ -78,7 +78,7 @@ function logInfo(message, context) {
   }
   writeToFile("INFO", message, context);
 }
-function logError2(message, context) {
+function logError(message, context) {
   if (DEBUG_MODE) {
     const contextStr = context ? ` ${JSON.stringify(context)}` : "";
     console.error(`[${PLUGIN_NAME}] ${message}${contextStr}`);
@@ -556,7 +556,7 @@ function createAutoRetryHelpers(deps) {
       }
       return parentID;
     } catch {
-      logError2("Failed to look up parentID", { sessionID });
+      logError("Failed to look up parentID", { sessionID });
       return null;
     }
   };
@@ -566,7 +566,7 @@ function createAutoRetryHelpers(deps) {
       deps.sessionSelfAbortTimestamp.set(sessionID, Date.now());
       logInfo(`Aborted in-flight session request (${source})`, { sessionID });
     } catch (error) {
-      logError2(`Failed to abort in-flight session request (${source})`, {
+      logError(`Failed to abort in-flight session request (${source})`, {
         sessionID,
         error: String(error)
       });
@@ -711,7 +711,7 @@ function createAutoRetryHelpers(deps) {
         try {
           await abortSessionRequest(sessionID, "compaction-fallback");
         } catch {
-          logError2(`Failed to abort session for compaction fallback (${source})`, { sessionID });
+          logError(`Failed to abort session for compaction fallback (${source})`, { sessionID });
         }
         await new Promise((resolve) => setTimeout(resolve, 500));
         try {
@@ -756,7 +756,7 @@ function createAutoRetryHelpers(deps) {
                   messageID: msgID
                 });
               } catch (delErr) {
-                logError2(`Failed to delete compaction message (${source})`, {
+                logError(`Failed to delete compaction message (${source})`, {
                   sessionID,
                   messageID: msgID,
                   error: String(delErr)
@@ -764,13 +764,13 @@ function createAutoRetryHelpers(deps) {
               }
             }
           } else if (deleteIDs.length > 0) {
-            logError2(`Cannot access raw SDK client for message deletion (${source})`, {
+            logError(`Cannot access raw SDK client for message deletion (${source})`, {
               sessionID,
               messageCount: deleteIDs.length
             });
           }
         } catch (msgErr) {
-          logError2(`Failed during compaction message cleanup (${source})`, {
+          logError(`Failed during compaction message cleanup (${source})`, {
             sessionID,
             error: String(msgErr)
           });
@@ -835,7 +835,7 @@ function createAutoRetryHelpers(deps) {
           });
           return true;
         } catch (summarizeErr) {
-          logError2(`session.summarize failed (${source})`, {
+          logError(`session.summarize failed (${source})`, {
             sessionID,
             model: newModel,
             error: String(summarizeErr)
@@ -877,7 +877,7 @@ function createAutoRetryHelpers(deps) {
       });
       const msgs = messagesResp.data;
       if (!msgs || msgs.length === 0) {
-        logError2(`No messages found in session for auto-retry (${source})`, { sessionID });
+        logError(`No messages found in session for auto-retry (${source})`, { sessionID });
       }
       let lastUserPartsRaw;
       let lastNonAssistantPartsRaw;
@@ -1009,7 +1009,7 @@ function createAutoRetryHelpers(deps) {
               }).catch(() => {});
             }
           } else {
-            logError2(`All replay tiers failed (${source})`, {
+            logError(`All replay tiers failed (${source})`, {
               sessionID,
               error: replayResult.error
             });
@@ -1023,7 +1023,7 @@ function createAutoRetryHelpers(deps) {
         });
       }
     } catch (retryError) {
-      logError2(`Auto-retry failed (${source})`, {
+      logError(`Auto-retry failed (${source})`, {
         sessionID,
         error: String(retryError)
       });
@@ -1063,7 +1063,7 @@ function createAutoRetryHelpers(deps) {
         }
       }
     } catch {
-      logError2("Failed to resolve agent from messages", { sessionID });
+      logError("Failed to resolve agent from messages", { sessionID });
     }
     try {
       const sessionInfo = await ctx.client.session.get({ path: { id: sessionID } });
@@ -1075,7 +1075,7 @@ function createAutoRetryHelpers(deps) {
         return normalized;
       }
     } catch {
-      logError2("Failed to resolve agent from session.get", { sessionID });
+      logError("Failed to resolve agent from session.get", { sessionID });
     }
     return;
   };
@@ -1373,7 +1373,7 @@ function createEventHandler(deps, helpers) {
         }
         await helpers.autoRetryWithFallback(sessionID, plan.newModel, resolvedAgent, "session.status", plan, { message: status.message || "Provider auto-retry signal", name: "ProviderRetrySignal" });
       } else if (!plan.success) {
-        logError2("session.status fallback failed", {
+        logError("session.status fallback failed", {
           sessionID,
           error: plan.error
         });
@@ -1595,7 +1595,7 @@ function createEventHandler(deps, helpers) {
         }
         await helpers.autoRetryWithFallback(sessionID, plan.newModel, resolvedAgent, "session.error", plan, error);
       } else {
-        logError2("Fallback preparation failed", {
+        logError("Fallback preparation failed", {
           sessionID,
           error: plan.error
         });
@@ -1636,7 +1636,7 @@ function createEventHandler(deps, helpers) {
       const agentConfig = resolvedAgent && deps.agentConfigs ? deps.agentConfigs[resolvedAgent] : undefined;
       const initialModel = agentConfig?.model ?? findFirstAgentModel();
       if (!initialModel) {
-        logError2("Cannot trigger immediate fallback - no model info", { sessionID });
+        logError("Cannot trigger immediate fallback - no model info", { sessionID });
         return;
       }
       state = createFallbackState(initialModel);
@@ -1662,7 +1662,7 @@ function createEventHandler(deps, helpers) {
       }
       await helpers.autoRetryWithFallback(sessionID, plan.newModel, resolvedAgent, "session.status.immediate", plan, { message: status.message || "Provider retry too slow", name: "ProviderRetryTooSlow" });
     } else if (!plan.success) {
-      logError2("Immediate fallback preparation failed", {
+      logError("Immediate fallback preparation failed", {
         sessionID,
         error: plan.error
       });
@@ -1859,7 +1859,7 @@ function createMessageUpdateHandler(deps, helpers) {
         if (eventHasActivity) {
           deps.sessionFirstTokenReceived.set(sessionID, true);
         }
-        logError2("Assistant update observed without visible final response; keeping fallback timeout", { sessionID, model, firstTokenReceived: deps.sessionFirstTokenReceived.get(sessionID) ?? false });
+        logError("Assistant update observed without visible final response; keeping fallback timeout", { sessionID, model, firstTokenReceived: deps.sessionFirstTokenReceived.get(sessionID) ?? false });
         return;
       }
       deps.sessionFirstTokenReceived.set(sessionID, true);
@@ -1941,7 +1941,7 @@ function createMessageUpdateHandler(deps, helpers) {
         return;
       }
       if (retrySignal && sessionRetryInFlight.has(sessionID) && timeoutEnabled) {
-        logError2("Overriding in-flight retry due to provider auto-retry signal", { sessionID, model });
+        logError("Overriding in-flight retry due to provider auto-retry signal", { sessionID, model });
         await helpers.abortSessionRequest(sessionID, "message.updated.retry-signal");
         sessionRetryInFlight.delete(sessionID);
       }
@@ -2003,7 +2003,7 @@ function createMessageUpdateHandler(deps, helpers) {
         const isRetryable = isRetryableError(error, config.retry_on_errors, config.retryable_error_patterns);
         const inFallbackChain = state && state.currentModel !== state.originalModel;
         if (!isRetryable && !inFallbackChain) {
-          logError2("message.updated error not retryable and not in fallback chain, skipping", {
+          logError("message.updated error not retryable and not in fallback chain, skipping", {
             sessionID,
             statusCode: extractStatusCode(error, config.retry_on_errors),
             errorName: extractErrorName(error),
@@ -2025,7 +2025,7 @@ function createMessageUpdateHandler(deps, helpers) {
             const agentConfig = resolvedAgent && deps.agentConfigs ? deps.agentConfigs[resolvedAgent] : undefined;
             const agentModel = agentConfig?.model;
             if (agentModel) {
-              logError2("Derived model from agent config for message.updated", {
+              logError("Derived model from agent config for message.updated", {
                 sessionID,
                 agent: resolvedAgent,
                 model: agentModel
@@ -2034,7 +2034,7 @@ function createMessageUpdateHandler(deps, helpers) {
             }
           }
           if (!initialModel) {
-            logError2("message.updated missing model info, cannot fallback", {
+            logError("message.updated missing model info, cannot fallback", {
               sessionID,
               errorName: extractErrorName(error),
               errorType: classifyErrorType(error)
@@ -2047,7 +2047,7 @@ function createMessageUpdateHandler(deps, helpers) {
         } else {
           sessionLastAccess.set(sessionID, Date.now());
           if (state.pendingFallbackModel && retrySignal && timeoutEnabled) {
-            logError2("Clearing pending fallback due to provider auto-retry signal", {
+            logError("Clearing pending fallback due to provider auto-retry signal", {
               sessionID,
               pendingFallbackModel: state.pendingFallbackModel
             });
@@ -2144,7 +2144,7 @@ function createChatMessageHandler(deps, helpers) {
         });
         return;
       }
-      logError2("Detected manual model change, resetting fallback state", {
+      logError("Detected manual model change, resetting fallback state", {
         sessionID,
         from: state.currentModel,
         to: requestedModel
@@ -3202,125 +3202,145 @@ async function OpenCodeFallbackPlugin(ctx, configOverrides) {
   return {
     name: PLUGIN_NAME,
     config: (opencodeConfig) => {
-      const agentsValue = opencodeConfig.agents;
-      const agentValue = opencodeConfig.agent;
-      if (agentsValue && typeof agentsValue === "object" && !Array.isArray(agentsValue)) {
-        agentConfigs = agentsValue;
-      } else if (agentValue && typeof agentValue === "object" && !Array.isArray(agentValue)) {
-        agentConfigs = agentValue;
-      } else {
-        agentConfigs = undefined;
-      }
-      if (agentConfigs) {
-        for (const [agentName, rawAgentCfg] of Object.entries(agentConfigs)) {
-          if (!rawAgentCfg || typeof rawAgentCfg !== "object")
-            continue;
-          const agentCfg = rawAgentCfg;
-          const fm = agentCfg.fallback_models;
-          if (fm === undefined)
-            continue;
-          const models = normalizeFallbackModelsField(fm);
-          validateFallbackModels(models, { scope: "agent", agent: agentName });
-        }
-      }
-      logInfo(`Plugin initialized with ${agentConfigs ? Object.keys(agentConfigs).length : 0} agents`);
-    },
-    event: async ({
-      event
-    }) => {
-      if (event.type === "message.updated") {
-        if (!deps.config.enabled)
+      try {
+        if (!opencodeConfig || typeof opencodeConfig !== "object")
           return;
-        const props = event.properties;
-        await messageUpdateHandler(props);
-        return;
-      }
-      if (event.type === "message.part.delta" || event.type === "session.diff" || event.type === "message.part.updated") {
-        const props = event.properties;
-        const info = props?.info;
-        const sessionID = props?.sessionID ?? info?.sessionID ?? info?.id;
-        const activityModel = info?.model ?? (typeof info?.providerID === "string" && typeof info?.modelID === "string" ? `${info.providerID}/${info.modelID}` : undefined) ?? props?.model;
-        if (sessionID) {
-          await handleActivity(sessionID, activityModel);
+        const agentValue = opencodeConfig.agent;
+        const agentsValue = opencodeConfig.agents;
+        const candidates = [agentValue, agentsValue];
+        const found = candidates.find((v) => v && typeof v === "object" && !Array.isArray(v));
+        agentConfigs = found;
+        if (agentConfigs) {
+          for (const [agentName, rawAgentCfg] of Object.entries(agentConfigs)) {
+            if (!rawAgentCfg || typeof rawAgentCfg !== "object")
+              continue;
+            const agentCfg = rawAgentCfg;
+            const fm = agentCfg.fallback_models;
+            if (fm === undefined)
+              continue;
+            const models = normalizeFallbackModelsField(fm);
+            validateFallbackModels(models, { scope: "agent", agent: agentName });
+          }
         }
+        logInfo(`Plugin initialized with ${agentConfigs ? Object.keys(agentConfigs).length : 0} agents`);
+      } catch (err) {
+        logError("config hook error", { error: String(err) });
       }
-      await baseEventHandler({ event });
+    },
+    event: async (arg0) => {
+      try {
+        const wrapper = arg0 && typeof arg0 === "object" ? arg0 : undefined;
+        const ev = wrapper?.event ?? arg0;
+        if (!ev || typeof ev !== "object" || typeof ev.type !== "string")
+          return;
+        if (ev.type === "message.updated") {
+          if (!deps.config.enabled)
+            return;
+          const props = ev.properties;
+          await messageUpdateHandler(props);
+          return;
+        }
+        if (ev.type === "message.part.delta" || ev.type === "session.diff" || ev.type === "message.part.updated") {
+          const props = ev.properties;
+          const info = props?.info;
+          const sessionID = props?.sessionID ?? info?.sessionID ?? info?.id;
+          const activityModel = info?.model ?? (typeof info?.providerID === "string" && typeof info?.modelID === "string" ? `${info.providerID}/${info.modelID}` : undefined) ?? props?.model;
+          if (sessionID) {
+            await handleActivity(sessionID, activityModel);
+          }
+        }
+        await baseEventHandler({ event: ev });
+      } catch (err) {
+        logError("event hook error", { error: String(err) });
+      }
     },
     "tool.execute.after": async (input, output) => {
-      if (input.tool !== "task" || !isEmptyTaskResult(output.output)) {
-        return;
-      }
-      const childSessionID = extractChildSessionID(output.output);
-      if (!childSessionID) {
-        logInfo("Empty task result but no child session ID found", {
-          sessionID: input.sessionID,
-          outputPreview: output.output?.substring(0, 200)
-        });
-        return;
-      }
-      logInfo("Detected empty task result, waiting for child fallback", {
-        parentSession: input.sessionID,
-        childSession: childSessionID
-      });
-      const maxWaitMs = Math.min((deps.config.timeout_seconds || 120) * 1000, 120000);
-      const replacementText = await waitForChildFallbackResult(deps, childSessionID, {
-        maxWaitMs,
-        pollIntervalMs: 500
-      });
-      if (replacementText) {
-        output.output = replacementText;
-        logInfo("Replaced empty task result with fallback response", {
-          parentSession: input.sessionID,
-          childSession: childSessionID,
-          responseLength: replacementText.length
-        });
-      } else {
-        logInfo("No fallback response available, preserving original output", {
+      try {
+        if (input.tool !== "task" || !isEmptyTaskResult(output.output)) {
+          return;
+        }
+        const childSessionID = extractChildSessionID(output.output);
+        if (!childSessionID) {
+          logInfo("Empty task result but no child session ID found", {
+            sessionID: input.sessionID,
+            outputPreview: output.output?.substring(0, 200)
+          });
+          return;
+        }
+        logInfo("Detected empty task result, waiting for child fallback", {
           parentSession: input.sessionID,
           childSession: childSessionID
         });
+        const maxWaitMs = Math.min((deps.config.timeout_seconds || 120) * 1000, 120000);
+        const replacementText = await waitForChildFallbackResult(deps, childSessionID, {
+          maxWaitMs,
+          pollIntervalMs: 500
+        });
+        if (replacementText) {
+          output.output = replacementText;
+          logInfo("Replaced empty task result with fallback response", {
+            parentSession: input.sessionID,
+            childSession: childSessionID,
+            responseLength: replacementText.length
+          });
+        } else {
+          logInfo("No fallback response available, preserving original output", {
+            parentSession: input.sessionID,
+            childSession: childSessionID
+          });
+        }
+      } catch (err) {
+        logError("tool.execute.after hook error", { error: String(err) });
       }
     },
     "chat.message": async (input, output) => {
-      await chatMessageHandler(input, output);
+      try {
+        await chatMessageHandler(input, output);
+      } catch (err) {
+        logError("chat.message hook error", { error: String(err) });
+      }
     },
     "experimental.provider.small_model": async (input, output) => {
-      const cfg = deps.config;
-      if (!cfg.enabled)
-        return;
-      const chain = cfg.small_model_chain ?? [];
-      if (!chain.length)
-        return;
-      const now = Date.now();
-      const cooldownMs = (cfg.cooldown_seconds ?? 60) * 1000;
-      let providers = [];
       try {
-        const res = await ctx.client.config.providers();
-        providers = res?.data?.providers ?? res?.providers ?? [];
-      } catch (err) {
-        logError("small_model hook: failed to list providers", { error: String(err) });
-      }
-      for (const candidate of chain) {
-        const idx = candidate.indexOf("/");
-        if (idx <= 0)
-          continue;
-        const providerID = candidate.slice(0, idx);
-        const modelID = candidate.slice(idx + 1);
-        const failedAt = smallModelProviderCooldowns.get(providerID);
-        if (failedAt && now - failedAt < cooldownMs) {
-          logInfo(`small_model chain skip ${candidate} (provider in cooldown)`);
-          continue;
-        }
-        const provider = providers.find((p) => p && p.id === providerID);
-        const model = provider && provider.models ? provider.models[modelID] : undefined;
-        if (model) {
-          output.model = model;
-          logInfo(`small_model chain selected ${candidate}`);
+        const cfg = deps.config;
+        if (!cfg.enabled)
           return;
+        const chain = cfg.small_model_chain ?? [];
+        if (!chain.length)
+          return;
+        const now = Date.now();
+        const cooldownMs = (cfg.cooldown_seconds ?? 60) * 1000;
+        let providers = [];
+        try {
+          const res = await ctx.client.config.providers();
+          providers = res?.data?.providers ?? res?.providers ?? [];
+        } catch (err) {
+          logError("small_model hook: failed to list providers", { error: String(err) });
         }
-        logInfo(`small_model chain candidate not found: ${candidate}`);
+        for (const candidate of chain) {
+          const idx = candidate.indexOf("/");
+          if (idx <= 0)
+            continue;
+          const providerID = candidate.slice(0, idx);
+          const modelID = candidate.slice(idx + 1);
+          const failedAt = smallModelProviderCooldowns.get(providerID);
+          if (failedAt && now - failedAt < cooldownMs) {
+            logInfo(`small_model chain skip ${candidate} (provider in cooldown)`);
+            continue;
+          }
+          const provider = providers.find((p) => p && p.id === providerID);
+          const model = provider && provider.models ? provider.models[modelID] : undefined;
+          if (model) {
+            output.model = model;
+            logInfo(`small_model chain selected ${candidate}`);
+            return;
+          }
+          logInfo(`small_model chain candidate not found: ${candidate}`);
+        }
+        logInfo("small_model chain exhausted, leaving to opencode heuristic", {});
+      } catch (err) {
+        logError("small_model hook error", { error: String(err) });
       }
-      logInfo("small_model chain exhausted, leaving to opencode heuristic", {});
     }
   };
 }
